@@ -233,6 +233,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 	for time.Since(t0).Seconds() < 10 && ts.checkFinished() == false {
 		// try all the servers, maybe one is the leader.
 		index := -1
+		// fmt.Println("test one begin")
 		for range ts.srvs {
 			starts = (starts + 1) % len(ts.srvs)
 			var rf raftapi.Raft
@@ -244,6 +245,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 			if rf != nil {
 				//log.Printf("peer %d Start %v", starts, cmd)
 				index1, _, ok := rf.Start(cmd)
+				// fmt.Printf("one me:%d index1:%d ok:%t\n", starts, index1, ok)
 				if ok {
 					index = index1
 					break
@@ -257,10 +259,12 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
 				nd, cmd1 := ts.nCommitted(index)
+				// fmt.Printf("test yyyywww wait nd:%d expectedServers:%d cmd:%v cmd1:%v\n", nd, expectedServers, cmd, cmd1)
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd1 == cmd {
 						// and it was the command we submitted.
+						// fmt.Printf("test yyyywww success %d\n", starts)
 						desp := fmt.Sprintf("agreement of %.8s reached", textcmd)
 						tester.AnnotateCheckerSuccess(desp, "OK")
 						return index

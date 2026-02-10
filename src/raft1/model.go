@@ -16,7 +16,9 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	applyCh chan raftapi.ApplyMsg
+	applyCh   chan raftapi.ApplyMsg
+	applyCond *sync.Cond // todo:条件变量需要这么声明
+	// todo：因为初始化后不能被拷贝，Gemini：Go只有值传递（pass by value），一切传值默认拷贝
 	// Your data here (3A, 3B, 3C).
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
@@ -33,13 +35,15 @@ type Raft struct {
 
 	heartbeatChan             chan int
 	electionTimeoutChan       chan int
-	electionTimeoutTimerCount int // new
+	electionTimeoutTimerCount int // 用于重制选举超时计时器
+
+	replicatorChanList []*sync.Cond
 }
 
 type logEntry struct {
-	entry interface{}
-	term  int
-	index int // todo：在snapshot之后会清0吗, 从1开始吗
+	Entry interface{}
+	Term  int
+	Index int // todo：在snapshot之后会清0吗, 从1开始吗
 }
 
 // RequestVoteArgs example RequestVote RPC arguments structure.
@@ -65,11 +69,13 @@ type AppendEntriesArgs struct {
 	LeaderId     int
 	PrevLogIndex int
 	PrevLogTerm  int
-	Entries      []interface{}
+	Entries      []logEntry
 	LeaderCommit int
 }
 
 type AppendEntriesReply struct {
-	Term    int
-	Success bool
+	Term          int
+	Success       bool
+	ConflictIndex int
+	ConflictTerm  int
 }
