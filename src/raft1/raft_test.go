@@ -132,7 +132,6 @@ func TestManyElections3A(t *testing.T) {
 }
 
 func TestBasicAgree3B(t *testing.T) {
-	return //todo：debug
 	servers := 3
 	ts := makeTest(t, servers, true, false)
 	defer ts.cleanup()
@@ -158,7 +157,6 @@ func TestBasicAgree3B(t *testing.T) {
 // check, based on counting bytes of RPCs, that
 // each command is sent to each peer just once.
 func TestRPCBytes3B(t *testing.T) {
-	// todo：debug pass
 	servers := 3
 	ts := makeTest(t, servers, true, false)
 	defer ts.cleanup()
@@ -283,7 +281,7 @@ func TestFailAgree3B(t *testing.T) {
 
 	// disconnect one follower from the network.
 	leader := ts.checkOneLeader()
-	fmt.Printf("test disconnect %d ======\n", (leader+1)&servers)
+	// fmt.Printf("test disconnect %d ======\n", (leader+1)%servers)
 	ts.g.DisconnectAll((leader + 1) % servers)
 	tester.AnnotateConnection(ts.g.GetConnected())
 
@@ -295,7 +293,7 @@ func TestFailAgree3B(t *testing.T) {
 	ts.one(104, servers-1, false)
 	ts.one(105, servers-1, false)
 
-	fmt.Printf("test success in there ======\n")
+	// fmt.Printf("test success in there ======\n")
 	// re-connect
 	ts.g.ConnectOne((leader + 1) % servers)
 	tester.AnnotateConnection(ts.g.GetConnected())
@@ -496,9 +494,11 @@ func TestRejoin3B(t *testing.T) {
 	// leader network failure
 	leader1 := ts.checkOneLeader()
 	ts.g.DisconnectAll(leader1)
+	// fmt.Printf("yw test disconnect a leader\n")
 	tester.AnnotateConnection(ts.g.GetConnected())
 
 	// make old leader try to agree on some entries
+	// fmt.Printf("yw test1 leader1=%d\n", leader1)
 	start := tester.GetAnnotateTimestamp()
 	ts.srvs[leader1].Raft().Start(102)
 	ts.srvs[leader1].Raft().Start(103)
@@ -506,24 +506,27 @@ func TestRejoin3B(t *testing.T) {
 	text := fmt.Sprintf("submitted commands [102 103 104] to %v", leader1)
 	tester.AnnotateInfoInterval(start, text, text)
 
+	// fmt.Printf("yw test2\n")
 	// new leader commits, also for index=2
 	ts.one(103, 2, true)
-
+	// fmt.Printf("yw test3\n")
 	// new leader network failure
 	leader2 := ts.checkOneLeader()
 	ts.g.DisconnectAll(leader2)
 
 	// old leader connected again
+	// fmt.Printf("yw test4 disconnect leader2=%d\n", leader2)
 	ts.g.ConnectOne(leader1)
 	tester.AnnotateConnection(ts.g.GetConnected())
-
+	// fmt.Printf("yw test5\n")
 	ts.one(104, 2, true)
-
+	// fmt.Printf("yw test5.5\n")
 	// all together now
 	ts.g.ConnectOne(leader2)
 	tester.AnnotateConnection(ts.g.GetConnected())
-
+	// fmt.Printf("yw test6")
 	ts.one(105, servers, true)
+	// fmt.Printf("yw test7")
 }
 
 func TestBackup3B(t *testing.T) {

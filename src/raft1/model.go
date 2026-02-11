@@ -25,7 +25,7 @@ type Raft struct {
 	state       int
 	currentTerm int
 	votedFor    int
-	logs        []logEntry // 这啥语法
+	logs        []LogEntry // 这啥语法
 
 	commitIndex int
 	lastApplied int
@@ -40,7 +40,7 @@ type Raft struct {
 	replicatorChanList []*sync.Cond
 }
 
-type logEntry struct {
+type LogEntry struct {
 	Entry interface{}
 	Term  int
 	Index int // todo：在snapshot之后会清0吗, 从1开始吗
@@ -69,7 +69,7 @@ type AppendEntriesArgs struct {
 	LeaderId     int
 	PrevLogIndex int
 	PrevLogTerm  int
-	Entries      []logEntry
+	Entries      []LogEntry
 	LeaderCommit int
 }
 

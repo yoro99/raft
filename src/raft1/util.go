@@ -7,7 +7,7 @@ import (
 )
 
 // Debugging
-const Debug = true
+const Debug = false
 
 func DPrintf(format string, a ...interface{}) {
 	if Debug {
@@ -16,25 +16,16 @@ func DPrintf(format string, a ...interface{}) {
 }
 
 // todo: 这样带来的性能优化多吗
-func getTermFromLogs(idx int, logs *[]logEntry) int {
-	if idx <= len(*logs) {
+func getTermFromLogs(idx int, logs *[]LogEntry) int {
+	// 如果当前选中的leader的logs被刷新导致丢失了nextIndex的数据
+	// todo：思考需要特殊处理吗？
+	if idx >= len(*logs) {
 		return 0
 	}
 	return (*logs)[idx].Term
 }
 
-// todo: go的数组是值传参？
-func checkIndexFromAppendEntries(logs *[]logEntry, prevLogIndex int, prevLogTerm int) bool {
-	if prevLogIndex == -1 {
-		return true
-	}
-	if prevLogIndex > len(*logs) || ((*logs)[prevLogIndex].Term != prevLogTerm) {
-		return false
-	}
-	return true
-}
-
-func getLastLogIndex(logs *[]logEntry) int {
+func getLastLogIndex(logs *[]LogEntry) int {
 	logLen := len(*logs)
 	if logLen == 0 {
 		return 0
@@ -42,26 +33,18 @@ func getLastLogIndex(logs *[]logEntry) int {
 	return (*logs)[logLen-1].Index
 }
 
-func getLastLogTerm(logs *[]logEntry) int {
-	logLen := len(*logs)
-	if logLen == 0 {
-		return 0
-	}
-	return (*logs)[logLen-1].Term
-}
-
-func getLogs(logs *[]logEntry, idx int) []logEntry {
-	res := make([]logEntry, 0)
+func getLogs(logs *[]LogEntry, idx int) []LogEntry {
+	res := make([]LogEntry, 0)
 	for i := len(*logs) - 1; i >= idx; i-- {
 		res = append(res, (*logs)[i])
 	}
-	DPrintf("getLogs len:%d idx:%d res_len:%d", len(*logs), idx, len(res))
+	// DPrintf("getLogs len:%d idx:%d res_len:%d", len(*logs), idx, len(res))
 	slices.Reverse(res)
 	return res
 }
 
-func checkLogFromRequestVote(logs *[]logEntry, lastLogIndex int, lastLogTerm int) bool {
-	if len(*logs) == 0 {
+func checkLogFromRequestVote(logs *[]LogEntry, lastLogIndex int, lastLogTerm int) bool {
+	if len(*logs) == 1 {
 		return true
 	}
 	lastLog := (*logs)[len(*logs)-1]
@@ -87,7 +70,7 @@ func (rf *Raft) getLastLogInfo() (int, int) {
 	return rf.logs[len(rf.logs)-1].Index, rf.logs[len(rf.logs)-1].Term
 }
 
-func (rf *Raft) getLogCopy(left, n int) []logEntry {
+func (rf *Raft) getLogCopy(left, n int) []LogEntry {
 	//i, l := 1, len(rf.logs)
 	//for ; i < l && rf.logs[i].Index != left; i++ {
 	//}
@@ -103,11 +86,15 @@ func (rf *Raft) getLogCopy(left, n int) []logEntry {
 }
 
 func (rf *Raft) enableAppend(preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex int) bool {
+	DPrintf("enableAppend debug1 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d",
+		rf.me, preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex)
 	if preLogIndex == lastIndex && preLogTerm == lastTerm { //todo: delete
 		return true
 	}
 	//fmt.Printf("test me:%d len:%d, pre:%d findex:%d\n", rf.me, len(rf.logs), preLogIndex, firstIndex)
 	_, term := rf.getLogInfo(preLogIndex + 1 - firstIndex)
+	DPrintf("enableAppend debug2 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d term:%d",
+		rf.me, preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex, term)
 	if term == preLogTerm {
 		return true
 	}
@@ -152,5 +139,5 @@ func (rf *Raft) enableReplicate(peer int) bool {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	lastIndex, _ := rf.getLastLogInfo()
-	return rf.nextIndex[peer] > lastIndex
+	return rf.matchIndex[peer] >= lastIndex || rf.state != Leader //todo: 和教程对比
 }
