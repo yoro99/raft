@@ -38,6 +38,8 @@ type Raft struct {
 	electionTimeoutTimerCount int // 用于重制选举超时计时器
 
 	replicatorChanList []*sync.Cond
+	lastIncludedIndex  int
+	lastIncludedTerm   int
 }
 
 type LogEntry struct {
@@ -78,4 +80,20 @@ type AppendEntriesReply struct {
 	Success       bool
 	ConflictIndex int
 	ConflictTerm  int
+}
+
+type InstallSnapshotArgs struct {
+	Term              int
+	LeaderId          int
+	LastIncludedIndex int
+	LastIncludedTerm  int
+
+	// me: 这个实验用不到
+	offset int
+	data   []byte
+	done   bool
+}
+
+type InstallSnapshotReply struct {
+	Term int
 }
