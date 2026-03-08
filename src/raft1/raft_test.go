@@ -1269,6 +1269,7 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			ts.srvs[sender].Raft().Start(rand.Int())
 		}
 		text := fmt.Sprintf("submitting %v commands to %v", nn, sender)
+		// fmt.Println("yyww---" + text)
 		tester.AnnotateInfoInterval(start, text, text)
 
 		// let applier threads catch up with the Start()'s
@@ -1277,8 +1278,10 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 			// an InstallSnapshot RPC isn't required for
 			// TestSnapshotBasic3D().
 			ts.one(rand.Int(), servers, true)
+			// fmt.Println("yyww1-- this")
 		} else {
 			ts.one(rand.Int(), servers-1, true)
+			// fmt.Println("yyww2-- this")
 		}
 
 		if ts.g.LogSize() >= MAXLOGSIZE {
@@ -1286,9 +1289,10 @@ func snapcommon(t *testing.T, name string, disconnect bool, reliable bool, crash
 		}
 		if disconnect {
 			// reconnect a follower, who maybe behind and
-			// needs to rceive a snapshot to catch up.
+			// needs to receive a snapshot to catch up.
 			ts.g.ConnectOne(victim)
 			tester.AnnotateConnection(ts.g.GetConnected())
+			// fmt.Println("yyww3-- this")
 			ts.one(rand.Int(), servers, true)
 			leader1 = ts.checkOneLeader()
 		}

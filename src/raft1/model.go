@@ -89,9 +89,9 @@ type InstallSnapshotArgs struct {
 	LastIncludedTerm  int
 
 	// me: 这个实验用不到
-	offset int
-	data   []byte
-	done   bool
+	Offset int
+	Data   []byte
+	Done   bool
 }
 
 type InstallSnapshotReply struct {

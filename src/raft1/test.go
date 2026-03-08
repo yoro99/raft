@@ -234,7 +234,7 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 		// try all the servers, maybe one is the leader.
 		index := -1
 		// fmt.Println("test one begin")
-		for range ts.srvs {
+		for range ts.srvs { // me: 提交cmd
 			starts = (starts + 1) % len(ts.srvs)
 			var rf raftapi.Raft
 			if ts.g.IsConnected(starts) {
@@ -253,13 +253,12 @@ func (ts *Test) one(cmd any, expectedServers int, retry bool) int {
 			}
 		}
 
-		if index != -1 {
+		if index != -1 { //me: leader start成功
 			// somebody claimed to be the leader and to have
 			// submitted our command; wait a while for agreement.
 			t1 := time.Now()
 			for time.Since(t1).Seconds() < 2 {
-				nd, cmd1 := ts.nCommitted(index)
-				// fmt.Printf("test yyyywww wait nd:%d expectedServers:%d cmd:%v cmd1:%v\n", nd, expectedServers, cmd, cmd1)
+				nd, cmd1 := ts.nCommitted(index) // me: 检查cmd是否commit，以及commit的数量
 				if nd > 0 && nd >= expectedServers {
 					// committed
 					if cmd1 == cmd {

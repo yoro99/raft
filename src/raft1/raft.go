@@ -40,6 +40,7 @@ func (rf *Raft) GetState() (int, bool) {
 // 关于哪些状态需要持久化，请参见论文中的 Figure 2。
 // 在你尚未实现快照（snapshot）之前，应当向 persister.Save() 的第二个参数传入 nil。
 // 在你实现了快照之后，传入当前的快照（如果还没有快照，则传入 nil）。
+// todo: snapshot传nil时别把之前的snap覆盖了！
 func (rf *Raft) persist(snapshot []byte) {
 	// Your code here (3C).
 	// Example:
@@ -55,10 +56,10 @@ func (rf *Raft) persist(snapshot []byte) {
 		encoder.Encode(rf.votedFor) != nil ||
 		encoder.Encode(rf.lastIncludedIndex) != nil ||
 		encoder.Encode(rf.lastIncludedTerm) != nil ||
-		encoder.Encode(len(rf.logs)-1) != nil {
+		encoder.Encode(len(rf.logs)) != nil {
 		panic("Persist can't encode currentTerm|votedFor|logs")
 	}
-	for i := 1; i < len(rf.logs); i++ {
+	for i := 0; i < len(rf.logs); i++ {
 		if encoder.Encode(rf.logs[i]) != nil {
 			panic(fmt.Sprintf("Persist can't encode log[%d]", i))
 		}
@@ -100,12 +101,14 @@ func (rf *Raft) readPersist(data []byte) {
 		currentTerm, voteFor, lastIncludeIndex, lastIncludeTerm
 
 	var log LogEntry
+	logs := make([]LogEntry, 0)
 	for i := 0; i < logLen; i++ {
 		if decoder.Decode(&log) != nil {
 			panic("readPersist can't decode some LogEntry")
 		}
-		rf.logs = append(rf.logs, log)
+		logs = append(logs, log)
 	}
+	rf.logs = logs
 }
 
 // PersistBytes how many bytes in Raft's persisted log?
@@ -121,14 +124,16 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (3D).
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	firstIndex, _ := rf.getLogInfo(1)
-	DPrintf("Snapshot before me:%d index:%d len(logs):%d", rf.me, index, len(rf.logs))
+	firstIndex, _ := rf.getFirstLogInfo()
+	lastIndex, _ := rf.getLastLogInfo()
+	DPrintf("Snapshot before me:%d index:%d firstIndex:%d lastIndex:%d len(logs):%d", rf.me, index, firstIndex, lastIndex, len(rf.logs))
 	if firstIndex > index {
 		panic(fmt.Sprintf("Snapshot index error, index:%d, firstIndex:%d", index, firstIndex))
 	}
 	rf.logs = rf.shinkLogs(index)
 	rf.persist(snapshot)
-	DPrintf("Snapshot after me:%d index:%d len(logs):%d", rf.me, index, len(rf.logs))
+	DPrintf("Snapshot after me:%d len(logs):%d commitIndex:%d lastApplied:%d lastIncludedIndex:%d lastIncludedTerm:%d len(snapshot):%d len(readSnap):%d",
+		rf.me, len(rf.logs), rf.commitIndex, rf.lastApplied, rf.lastIncludedIndex, rf.lastIncludedTerm, len(snapshot), len(rf.persister.ReadSnapshot()))
 }
 
 func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
@@ -149,12 +154,23 @@ func (rf *Raft) InstallSnapshot(args *InstallSnapshotArgs, reply *InstallSnapsho
 	if rf.commitIndex >= args.LastIncludedIndex {
 		return
 	}
+	lastIndex, _ := rf.getLastLogInfo()
+	if lastIndex <= args.LastIncludedIndex {
+		// todo：这逻辑也太不优雅了
+		rf.logs = make([]LogEntry, 1)
+		rf.commitIndex, rf.lastApplied = args.LastIncludedIndex, args.LastIncludedIndex
+		rf.lastIncludedIndex, rf.lastIncludedTerm = args.LastIncludedIndex, args.LastIncludedTerm
+		rf.logs[0].Index, rf.logs[0].Term = rf.lastIncludedIndex, rf.lastIncludedTerm // todo: snapshot所有数据的情况
+	} else {
+		rf.shinkLogs(args.LastIncludedIndex)
+	}
 
+	rf.persist(args.Data)
 	// todo: 可能提交后服务层会触发snapshot刷新状态，处理逻辑这边不需要写
 	go func() {
 		rf.applyCh <- raftapi.ApplyMsg{
 			SnapshotValid: true,
-			Snapshot:      args.data,
+			Snapshot:      args.Data,
 			SnapshotIndex: args.LastIncludedIndex,
 			SnapshotTerm:  args.LastIncludedTerm,
 		}
@@ -363,7 +379,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.mu.Unlock()
 	defer rf.persist(nil)
 	reply.Term = rf.currentTerm
-	DPrintf("AppendEntries tmp debug me:%d currentTerm:%d args.Term:%d", rf.me, rf.currentTerm, args.Term)
+	DPrintf("AppendEntries tmp debug me:%d currentTerm:%d args.Term:%d len(log):%d",
+		rf.me, rf.currentTerm, args.Term, len(rf.logs))
 	if args.Term < rf.currentTerm { // me: 无效rpc无需重制选举超时时间
 		reply.Success = false
 		return
@@ -375,7 +392,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		rf.votedFor = args.LeaderId // todo: 转为follower需要知道leader吗？我感觉需要
 	}
 	lastIndex, lastTerm := rf.getLastLogInfo()
-	firstIndex, _ := rf.getLogInfo(1) // getFirstIndex
+	firstIndex, _ := rf.getFirstLogInfo() // getFirstIndex
 	// todo: snapShot待适配
 	if lastIndex < args.PrevLogIndex {
 		reply.ConflictIndex = lastIndex
@@ -394,15 +411,15 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		return
 	}
 	// todo: 处理gc
-	if firstIndex == 0 {
+	if firstIndex == rf.logs[0].Index {
 		rf.logs = append(rf.logs[:1], args.Entries...) // 特殊处理logs为空的初始情况
 	} else {
 		rf.logs = append(rf.logs[:args.PrevLogIndex-firstIndex+1+1], args.Entries...)
 	}
 	lastIndex, lastTerm = rf.getLastLogInfo()
 	rf.matchIndex[rf.me] = lastIndex
-	DPrintf("AppendEntries after me:%d lastIndex:%d lastTerm:%d commitIndex:%d leaderCommitIndex:%d now_len(log):%d len(args.log):%d prevIndex:%d, prevTerm:%d",
-		rf.me, lastIndex, lastTerm, rf.commitIndex, args.LeaderCommit, len(rf.logs), len(args.Entries), args.PrevLogIndex, args.PrevLogTerm)
+	DPrintf("AppendEntries after me:%d lastIndex:%d lastTerm:%d commitIndex:%d leaderCommitIndex:%d lastApplied:%d now_len(log):%d len(args.log):%d prevIndex:%d, prevTerm:%d",
+		rf.me, lastIndex, lastTerm, rf.commitIndex, args.LeaderCommit, rf.lastApplied, len(rf.logs), len(args.Entries), args.PrevLogIndex, args.PrevLogTerm)
 	if args.LeaderCommit > rf.commitIndex && lastTerm == rf.currentTerm { // 需要检查任期？ 直接唤醒即可！！！
 		rf.commitIndex = min(args.LeaderCommit, lastIndex)
 		rf.applyCond.Signal()
@@ -418,7 +435,7 @@ func (rf *Raft) applyWorker() {
 			rf.applyCond.Wait()
 		}
 		commitIndex, lastApplied := rf.commitIndex, rf.lastApplied
-		firstIndex, _ := rf.getLogInfo(1)
+		firstIndex, _ := rf.getFirstLogInfo()
 		logsNum, beginIndex := commitIndex-lastApplied, lastApplied+1
 		logsCopy := make([]LogEntry, logsNum)
 		copy(logsCopy, rf.getLogCopy(beginIndex+1-firstIndex, logsNum)) // 拷贝！
@@ -476,18 +493,20 @@ func (rf *Raft) replicateOneRound(peer int) {
 		rf.mu.Unlock()
 		return
 	}
-	firstIndex, _ := rf.getLogInfo(1)
-	if firstIndex > rf.nextIndex[peer] {
-		fmt.Printf("in there=====\n")
+	firstIndex, _ := rf.getFirstLogInfo()
+	if (rf.nextIndex[peer] <= rf.lastIncludedIndex) && rf.nextIndex[peer]-1 != 0 { // todo：check 4D 改了nextIndex的条件可以过snapshot的第一个
 		args, reply := rf.genInstallSnapshotParams()
+		DPrintf("replicateOneRound before sendInstallSnapshot me:%d, peer:%d  args.Term:%d rf.nextIndex[peer]:%d firstIndex:%d LastIncludeIndex:%d LastIncludeTerm:%d hasData:%v len(snapshot):%d",
+			rf.me, peer, args.Term, rf.nextIndex[peer], firstIndex, args.LastIncludedIndex, args.LastIncludedTerm, args.Data == nil, len(args.Data))
+
 		rf.mu.Unlock()
 		if rf.sendInstallSnapshot(peer, args, reply) {
 			rf.handleInstallSnapshot(peer, args, reply)
 		}
 	} else {
 		args, reply := rf.genAppendEntriesParams(peer)
-		DPrintf("replicateOneRound before sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d currTerm: %d rf.nextIndex[peer]:%d lastLogIndex:%d",
-			rf.me, peer, len(args.Entries), len(rf.logs), args.Term, args.PrevLogIndex, args.PrevLogTerm, rf.currentTerm, rf.nextIndex[peer], getLastLogIndex(&rf.logs))
+		DPrintf("replicateOneRound before sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d rf.nextIndex[peer]:%d lastLogIndex:%d",
+			rf.me, peer, len(args.Entries), len(rf.logs), args.Term, args.PrevLogIndex, args.PrevLogTerm, rf.nextIndex[peer], getLastLogIndex(&rf.logs))
 		rf.mu.Unlock()
 		if rf.sendAppendEntries(peer, args, reply) {
 			rf.handleAppendEntries(peer, args, reply)
@@ -525,7 +544,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// Your initialization code here (3A, 3B, 3C).
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-	rf.applyCond = sync.NewCond(&rf.mu) // cond在wait后会自动释放其持有的锁，&sync.Mutex{}赋值方式！
+	rf.commitIndex, rf.lastApplied = rf.lastIncludedIndex, rf.lastIncludedIndex // todo: 适配3D
+	rf.applyCond = sync.NewCond(&rf.mu)                                         // cond在wait后会自动释放其持有的锁，&sync.Mutex{}赋值方式！
 	lastIndex, _ := rf.getLastLogInfo()
 	// me:peer从0开始，log的index从1开始
 	for peer := range rf.nextIndex {
