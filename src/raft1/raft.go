@@ -42,14 +42,6 @@ func (rf *Raft) GetState() (int, bool) {
 // 在你实现了快照之后，传入当前的快照（如果还没有快照，则传入 nil）。
 // todo: snapshot传nil时别把之前的snap覆盖了！
 func (rf *Raft) persist(snapshot []byte) {
-	// Your code here (3C).
-	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
 	buffer := new(bytes.Buffer)
 	encoder := labgob.NewEncoder(buffer)
 	if encoder.Encode(rf.currentTerm) != nil ||
@@ -65,7 +57,12 @@ func (rf *Raft) persist(snapshot []byte) {
 		}
 	}
 	raftState := buffer.Bytes()
-	rf.persister.Save(raftState, snapshot)
+
+	currentSnapshot := snapshot
+	if snapshot == nil {
+		currentSnapshot = rf.persister.ReadSnapshot()
+	}
+	rf.persister.Save(raftState, currentSnapshot)
 }
 
 // restore previously persisted state.
@@ -126,13 +123,13 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	defer rf.mu.Unlock()
 	firstIndex, _ := rf.getFirstLogInfo()
 	lastIndex, _ := rf.getLastLogInfo()
-	DPrintf("Snapshot before me:%d index:%d firstIndex:%d lastIndex:%d len(logs):%d", rf.me, index, firstIndex, lastIndex, len(rf.logs))
+	dPrintf("Snapshot before me:%d index:%d firstIndex:%d lastIndex:%d len(logs):%d", rf.me, index, firstIndex, lastIndex, len(rf.logs))
 	if firstIndex > index {
 		panic(fmt.Sprintf("Snapshot index error, index:%d, firstIndex:%d", index, firstIndex))
 	}
 	rf.logs = rf.shinkLogs(index)
 	rf.persist(snapshot)
-	DPrintf("Snapshot after me:%d len(logs):%d commitIndex:%d lastApplied:%d lastIncludedIndex:%d lastIncludedTerm:%d len(snapshot):%d len(readSnap):%d",
+	dPrintf("Snapshot after me:%d len(logs):%d commitIndex:%d lastApplied:%d lastIncludedIndex:%d lastIncludedTerm:%d len(snapshot):%d len(readSnap):%d",
 		rf.me, len(rf.logs), rf.commitIndex, rf.lastApplied, rf.lastIncludedIndex, rf.lastIncludedTerm, len(snapshot), len(rf.persister.ReadSnapshot()))
 }
 
@@ -197,7 +194,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		rf.currentTerm = args.Term
 		rf.state = Follower
 		rf.votedFor = Invalid
-		DPrintf("RequestVote product a follower:%d term:%d args.term:%d leaderId:%d======", rf.me, rf.currentTerm, args.Term, args.CandidateId)
+		dPrintf("RequestVote product a follower:%d term:%d args.term:%d leaderId:%d======", rf.me, rf.currentTerm, args.Term, args.CandidateId)
 	}
 	if rf.votedFor == Invalid && checkLogFromRequestVote(&rf.logs, args.LastLogIndex, args.LastLogTerm) {
 		rf.votedFor = args.CandidateId
@@ -206,7 +203,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	} else {
 		reply.VoteGranted = false
 	}
-	//DPrintf("RequestVote me:%d me.term:%d candidate:%d candidate.term:%d  isVote::%t",
+	//dPrintf("RequestVote me:%d me.term:%d candidate:%d candidate.term:%d  isVote::%t",
 	//	rf.me, rf.currentTerm, args.CandidateId, args.Term, reply.VoteGranted)
 }
 
@@ -239,7 +236,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	index := -1
 	term := rf.currentTerm
 	isLeader := false
-	if rf.killed() == false {
+	if rf.Killed() == false {
 		isLeader = rf.state == Leader
 		if isLeader {
 			rf.logs = append(rf.logs, LogEntry{
@@ -258,7 +255,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		}
 	}
 	// Your code here (3B).
-	DPrintf("Start command me:%d index:%d, term: %d, isLeader: %t, len(logs):%d cmd:%v",
+	dPrintf("Start command me:%d index:%d, term: %d, isLeader: %t, len(logs):%d cmd:%v",
 		rf.me, index, term, isLeader, len(rf.logs), command)
 	return index, term, isLeader
 }
@@ -273,7 +270,7 @@ func (rf *Raft) Kill() {
 }
 
 // me: 有循环操作才需要
-func (rf *Raft) killed() bool {
+func (rf *Raft) Killed() bool {
 	z := atomic.LoadInt32(&rf.dead)
 	return z == 1
 }
@@ -292,7 +289,7 @@ func (rf *Raft) timer(timerType int) {
 }
 
 func (rf *Raft) ticker() {
-	for rf.killed() == false {
+	for rf.Killed() == false {
 		select {
 		case <-rf.electionTimeoutChan:
 			rf.mu.Lock()
@@ -304,7 +301,7 @@ func (rf *Raft) ticker() {
 			}
 			go rf.handleElectionTimeout()
 		case <-rf.heartbeatChan:
-			// DPrintf("ticker heartbeat me:%d state:%d", rf.me, rf.state)
+			// dPrintf("ticker heartbeat me:%d state:%d", rf.me, rf.state)
 			go rf.broadcastHeartbeat()
 		}
 	}
@@ -314,7 +311,7 @@ func (rf *Raft) handleElectionTimeout() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 	defer rf.persist(nil)
-	DPrintf("ticker handleElectionTimeout peer-%d state:%d term:%d rf.electionTimeoutTimerCount: %d",
+	dPrintf("ticker handleElectionTimeout peer-%d state:%d term:%d rf.electionTimeoutTimerCount: %d",
 		rf.me, rf.state, rf.currentTerm, rf.electionTimeoutTimerCount)
 	if rf.state == Leader { // 需要检查，否则可能会在生成leader后又重制状态导致3B用例leaderFailure异常
 		return
@@ -341,7 +338,7 @@ func (rf *Raft) handleElectionTimeout() {
 				rf.mu.Lock()
 				defer rf.mu.Unlock()
 				defer rf.persist(nil)
-				DPrintf("RequestVoteReply me:%d, currentTerm:%d reply.term:%d, voteGranted:%v",
+				dPrintf("RequestVoteReply me:%d, currentTerm:%d reply.term:%d, voteGranted:%v",
 					rf.me, rf.currentTerm, reply.Term, reply.VoteGranted)
 				if reply.Term > rf.currentTerm {
 					rf.currentTerm = reply.Term
@@ -360,7 +357,7 @@ func (rf *Raft) handleElectionTimeout() {
 							rf.nextIndex[idx], rf.matchIndex[idx] = lastIndex+1, 0 // todo: have a bug
 						}
 						go rf.broadcastHeartbeat()
-						DPrintf("Product ==Leader== after sendRequestVote me:%d term:%d state:%d reply:%t voteCount:%d",
+						dPrintf("Product ==Leader== after sendRequestVote me:%d term:%d state:%d reply:%t voteCount:%d",
 							rf.me, rf.currentTerm, rf.state, reply.VoteGranted, voteCount)
 					}
 				}
@@ -379,7 +376,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	defer rf.mu.Unlock()
 	defer rf.persist(nil)
 	reply.Term = rf.currentTerm
-	DPrintf("AppendEntries tmp debug me:%d currentTerm:%d args.Term:%d len(log):%d",
+	dPrintf("AppendEntries tmp debug me:%d currentTerm:%d args.Term:%d len(log):%d",
 		rf.me, rf.currentTerm, args.Term, len(rf.logs))
 	if args.Term < rf.currentTerm { // me: 无效rpc无需重制选举超时时间
 		reply.Success = false
@@ -406,7 +403,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		for ; i > 0 && rf.logs[i].Term == reply.ConflictTerm; i-- {
 		}
 		reply.ConflictIndex = i // todo：使leader跳过该冲突term的所有entry
-		DPrintf("AppendEntries reject me:%d first:%d CTerm:%d, CIdx:%d", rf.me, firstIndex, reply.ConflictTerm, reply.ConflictIndex)
+		dPrintf("AppendEntries reject me:%d first:%d CTerm:%d, CIdx:%d", rf.me, firstIndex, reply.ConflictTerm, reply.ConflictIndex)
 		reply.Success = false
 		return
 	}
@@ -418,7 +415,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	}
 	lastIndex, lastTerm = rf.getLastLogInfo()
 	rf.matchIndex[rf.me] = lastIndex
-	DPrintf("AppendEntries after me:%d lastIndex:%d lastTerm:%d commitIndex:%d leaderCommitIndex:%d lastApplied:%d now_len(log):%d len(args.log):%d prevIndex:%d, prevTerm:%d",
+	dPrintf("AppendEntries after me:%d lastIndex:%d lastTerm:%d commitIndex:%d leaderCommitIndex:%d lastApplied:%d now_len(log):%d len(args.log):%d prevIndex:%d, prevTerm:%d",
 		rf.me, lastIndex, lastTerm, rf.commitIndex, args.LeaderCommit, rf.lastApplied, len(rf.logs), len(args.Entries), args.PrevLogIndex, args.PrevLogTerm)
 	if args.LeaderCommit > rf.commitIndex && lastTerm == rf.currentTerm { // 需要检查任期？ 直接唤醒即可！！！
 		rf.commitIndex = min(args.LeaderCommit, lastIndex)
@@ -428,10 +425,10 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 }
 
 func (rf *Raft) applyWorker() {
-	for rf.killed() == false {
+	for rf.Killed() == false {
 		rf.mu.Lock()
 		for rf.commitIndex <= rf.lastApplied {
-			DPrintf("applyWorker me:%d commitIndex:%d, lastApplied:%d", rf.me, rf.commitIndex, rf.lastApplied)
+			dPrintf("applyWorker me:%d commitIndex:%d, lastApplied:%d", rf.me, rf.commitIndex, rf.lastApplied)
 			rf.applyCond.Wait()
 		}
 		commitIndex, lastApplied := rf.commitIndex, rf.lastApplied
@@ -440,19 +437,20 @@ func (rf *Raft) applyWorker() {
 		logsCopy := make([]LogEntry, logsNum)
 		copy(logsCopy, rf.getLogCopy(beginIndex+1-firstIndex, logsNum)) // 拷贝！
 		lastIndex, lastTerm := rf.getLastLogInfo()
-		DPrintf("applyWork copy logs me:%d len:%d lenCopy:%d lastIndex:%d lastTerm:%d", rf.me, len(rf.logs), len(logsCopy), lastIndex, lastTerm)
+		dPrintf("applyWork copy logs me:%d len:%d lenCopy:%d lastIndex:%d lastTerm:%d", rf.me, len(rf.logs), len(logsCopy), lastIndex, lastTerm)
 		rf.mu.Unlock()
 		for i := range logsCopy {
-			DPrintf("applyWorker the copied log me:%d idx:%d term:%d", rf.me, logsCopy[i].Index, logsCopy[i].Term)
+			dPrintf("applyWorker the copied log me:%d idx:%d term:%d", rf.me, logsCopy[i].Index, logsCopy[i].Term)
 			rf.applyCh <- raftapi.ApplyMsg{
 				CommandValid: true,
 				CommandIndex: logsCopy[i].Index,
+				CommandTerm:  logsCopy[i].Term, // yw: ab4
 				Command:      logsCopy[i].Entry,
 			}
 		}
 		rf.mu.Lock()
 		rf.lastApplied = max(commitIndex, rf.lastApplied) // todo: snopShot预埋
-		DPrintf("applyWorker me:%d lastApplied %d -> %d", rf.me, lastApplied, rf.lastApplied)
+		dPrintf("applyWorker me:%d lastApplied %d -> %d", rf.me, lastApplied, rf.lastApplied)
 		rf.mu.Unlock()
 
 	}
@@ -461,12 +459,12 @@ func (rf *Raft) applyWorker() {
 func (rf *Raft) replicatorWorker(peer int) {
 	rf.replicatorChanList[peer].L.Lock() // todo：使用wait之前一定要先上锁！！！那感觉可以共享一个mutex啊
 	defer rf.replicatorChanList[peer].L.Unlock()
-	for rf.killed() == false {
+	for rf.Killed() == false {
 		for rf.enableReplicate(peer) {
 			rf.replicatorChanList[peer].Wait()
 		}
 
-		DPrintf("replicatorWorker readily to replicate me:%d, peer:%d", rf.me, peer)
+		dPrintf("replicatorWorker readily to replicate me:%d, peer:%d", rf.me, peer)
 		rf.replicateOneRound(peer) // 需要等待返回再开始下一轮 **模型
 	}
 }
@@ -474,10 +472,10 @@ func (rf *Raft) replicatorWorker(peer int) {
 func (rf *Raft) broadcastHeartbeat() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if rf.killed() || rf.state != Leader {
+	if rf.Killed() || rf.state != Leader {
 		return
 	}
-	DPrintf("broadcastHeartbeat leader=%d", rf.me)
+	dPrintf("broadcastHeartbeat leader=%d", rf.me)
 	for peer := range rf.peers {
 		if peer == rf.me {
 			continue
@@ -496,7 +494,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 	firstIndex, _ := rf.getFirstLogInfo()
 	if (rf.nextIndex[peer] <= rf.lastIncludedIndex) && rf.nextIndex[peer]-1 != 0 { // todo：check 4D 改了nextIndex的条件可以过snapshot的第一个
 		args, reply := rf.genInstallSnapshotParams()
-		DPrintf("replicateOneRound before sendInstallSnapshot me:%d, peer:%d  args.Term:%d rf.nextIndex[peer]:%d firstIndex:%d LastIncludeIndex:%d LastIncludeTerm:%d hasData:%v len(snapshot):%d",
+		dPrintf("replicateOneRound before sendInstallSnapshot me:%d, peer:%d  args.Term:%d rf.nextIndex[peer]:%d firstIndex:%d LastIncludeIndex:%d LastIncludeTerm:%d hasData:%v len(snapshot):%d",
 			rf.me, peer, args.Term, rf.nextIndex[peer], firstIndex, args.LastIncludedIndex, args.LastIncludedTerm, args.Data == nil, len(args.Data))
 
 		rf.mu.Unlock()
@@ -505,7 +503,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 		}
 	} else {
 		args, reply := rf.genAppendEntriesParams(peer)
-		DPrintf("replicateOneRound before sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d rf.nextIndex[peer]:%d lastLogIndex:%d",
+		dPrintf("replicateOneRound before sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d rf.nextIndex[peer]:%d lastLogIndex:%d",
 			rf.me, peer, len(args.Entries), len(rf.logs), args.Term, args.PrevLogIndex, args.PrevLogTerm, rf.nextIndex[peer], getLastLogIndex(&rf.logs))
 		rf.mu.Unlock()
 		if rf.sendAppendEntries(peer, args, reply) {
@@ -521,7 +519,7 @@ func (rf *Raft) replicateOneRound(peer int) {
 // Make() 必须快速返回，因此任何耗时较长的工作都应当放到 goroutine 中执行。
 func Make(peers []*labrpc.ClientEnd, me int,
 	persister *tester.Persister, applyCh chan raftapi.ApplyMsg) raftapi.Raft {
-	// DPrintf("make a raft instance begin")
+	// dPrintf("make a raft instance begin")
 	rf := &Raft{
 		peers:     peers,
 		persister: persister,
@@ -561,6 +559,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	go rf.timer(ElectionTimeout)
 	go rf.ticker()
 	go rf.applyWorker()
-	// DPrintf("make a raft instance end")
+	// dPrintf("make a raft instance end")
 	return rf
 }

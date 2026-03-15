@@ -1,11 +1,11 @@
 package rsm
 
 import (
+	"fmt"
 	//"log"
 	"sync"
 	"testing"
 	"time"
-	"fmt"
 
 	"6.5840/kvsrv1/rpc"
 	"6.5840/labrpc"
@@ -76,6 +76,7 @@ func (ts *Test) onePartition(p []int, req any) any {
 			if ts.g.IsConnected(index) {
 				s := ts.srvs[index]
 				if s.rsm != nil && inPartition(index, p) {
+					// fmt.Printf("yww2 %d\n", index)
 					err, rep := s.rsm.Submit(req)
 					if err == rpc.OK {
 						ts.mu.Lock()

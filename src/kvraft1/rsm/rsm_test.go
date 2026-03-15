@@ -93,6 +93,7 @@ func TestLeaderPartition4A(t *testing.T) {
 	foundl, l := Leader(ts.Config, Gid)
 	if foundl {
 		text := fmt.Sprintf("leader found = %v", l)
+		// fmt.Println("yw1=== " + text)
 		tester.AnnotateInfo(text, text)
 	} else {
 		text := "did not find a leader"
@@ -103,6 +104,7 @@ func TestLeaderPartition4A(t *testing.T) {
 	tester.AnnotateTwoPartitions(p1, p2)
 
 	text := fmt.Sprintf("concurrently submitting %v Dec to %v", NSUBMIT, l)
+	// fmt.Printf("yw2=== "+text+" %d, %d\n", p1, p2)
 	tester.AnnotateInfo(text, text)
 	done := make(chan struct{})
 	go func() {
@@ -116,6 +118,7 @@ func TestLeaderPartition4A(t *testing.T) {
 				if err, rep := ts.srvs[l].rsm.Submit(Dec{}); err == rpc.OK {
 					t.Fatalf("Submit %d in minority completed %v", i, rep)
 				}
+				// fmt.Printf("return yw i:%d", i)
 			}(i)
 		}
 		wg.Wait()
@@ -126,6 +129,7 @@ func TestLeaderPartition4A(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// submit an Inc in the majority
+	// fmt.Printf("yyww3== submit an Inc in the majority p1:%v\n", p1)
 	rep := ts.onePartition(p1, Inc{})
 
 	select {

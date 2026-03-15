@@ -8,18 +8,18 @@ import (
 )
 
 // Debugging
-const Debug = false
+const debug = false
 
 var firstLog bool = false
 
-func DPrintf(format string, a ...interface{}) {
-	if !firstLog {
-		f, _ := os.Create("raft.log")
-		log.SetOutput(f)
-		firstLog = true
-	}
-	if Debug {
-		log.Printf("====DEBUG=== "+format, a...)
+func dPrintf(format string, a ...interface{}) {
+	if debug {
+		if !firstLog {
+			f, _ := os.Create("raft.log")
+			log.SetOutput(f)
+			firstLog = true
+		}
+		log.Printf("====DEBUG raft=== "+format, a...)
 	}
 }
 
@@ -51,7 +51,7 @@ func (rf *Raft) getLogs(idx int) []LogEntry {
 	for i := len(rf.logs) - 1; i >= 1 && rf.logs[i].Index >= idx; i-- {
 		res = append(res, rf.logs[i])
 	}
-	// DPrintf("getLogs len:%d idx:%d res_len:%d", len(*logs), idx, len(res))
+	// dPrintf("getLogs len:%d idx:%d res_len:%d", len(*logs), idx, len(res))
 	slices.Reverse(res)
 	return res
 }
@@ -83,7 +83,7 @@ func (rf *Raft) getLogInfo(idx int) (Index, Term int) {
 	if len(rf.logs) <= idx || idx < 0 {
 		Index, Term = 0, 0
 		// panic(fmt.Sprintf("getLogInfo error len(log):%d, idx:%d", len(rf.logs), idx))
-		DPrintf("getLogInfo error len(log):%d, idx:%d", len(rf.logs), idx)
+		dPrintf("getLogInfo error len(log):%d, idx:%d", len(rf.logs), idx)
 		return
 	}
 	Index, Term = rf.logs[idx].Index, rf.logs[idx].Term
@@ -101,7 +101,7 @@ func (rf *Raft) getLogCopy(left, n int) []LogEntry {
 	//if i+n > l {
 	//	return make([]logEntry, 0)
 	//}
-	DPrintf("getLogCopy left:%d left+n:%d len:%d", left, left+n, len(rf.logs))
+	dPrintf("getLogCopy left:%d left+n:%d len:%d", left, left+n, len(rf.logs))
 
 	if left+n > len(rf.logs) {
 		panic(fmt.Sprintf("getLogCopy error left+n:%d len:%d", left+n, len(rf.logs)))
@@ -110,14 +110,14 @@ func (rf *Raft) getLogCopy(left, n int) []LogEntry {
 }
 
 func (rf *Raft) enableAppend(preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex int) bool {
-	DPrintf("enableAppend debug1 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d, len(logs):%d",
+	dPrintf("enableAppend debug1 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d, len(logs):%d",
 		rf.me, preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex, len(rf.logs))
 	if preLogIndex == lastIndex && preLogTerm == lastTerm { //todo: delete
 		return true
 	}
 	//fmt.Printf("test me:%d len:%d, pre:%d findex:%d\n", rf.me, len(rf.logs), preLogIndex, firstIndex)
 	_, term := rf.getLogInfo(preLogIndex + 1 - firstIndex)
-	DPrintf("enableAppend debug2 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d term:%d",
+	dPrintf("enableAppend debug2 me:%d preLogIndex:%d, perLogTerm:%d, lastIndex:%d lastTerm:%d firstIndex:%d term:%d",
 		rf.me, preLogIndex, preLogTerm, lastIndex, lastTerm, firstIndex, term)
 	if term == preLogTerm {
 		return true
@@ -135,7 +135,7 @@ func (rf *Raft) checkCommit(idx int) {
 				num += 1
 			}
 		}
-		//DPrintf("checkCommit begin me:%d idx:%d l:%d, r:%d mid:%d res:%t",
+		//dPrintf("checkCommit begin me:%d idx:%d l:%d, r:%d mid:%d res:%t",
 		//	rf.me, idx, l, r, mid, num >= len(rf.matchIndex)/2+1)
 
 		if num >= len(rf.matchIndex)/2+1 {
@@ -150,12 +150,12 @@ func (rf *Raft) checkCommit(idx int) {
 	}
 	firstIndex, _ := rf.getFirstLogInfo()
 	_, term := rf.getLogInfo(r - firstIndex + 1)
-	DPrintf("checkout me:%d commit:%d len(log):%d r:%d term:%d cTerm:%d firstIndex:%d",
+	dPrintf("checkout me:%d commit:%d len(log):%d r:%d term:%d cTerm:%d firstIndex:%d",
 		rf.me, rf.commitIndex, len(rf.logs), r, term, rf.currentTerm, firstIndex)
 	if term == rf.currentTerm {
 		rf.commitIndex = idx
 		rf.applyCond.Signal()
-		DPrintf("checkCommit me:%d signal", rf.me)
+		dPrintf("checkCommit me:%d signal", rf.me)
 	}
 }
 
@@ -178,7 +178,7 @@ func (rf *Raft) shinkLogs(index int) []LogEntry {
 	if index < lastIndex {
 		logs = append(logs, srcLog...) // todo：copy不能扩容？
 	}
-	DPrintf("shinkLogs index:%d firstIndex:%d lastIndex:%d beginIndex:%d len(newLog):%d len(oldLog):%d",
+	dPrintf("shinkLogs index:%d firstIndex:%d lastIndex:%d beginIndex:%d len(newLog):%d len(oldLog):%d",
 		index, firstIndex, lastIndex, index+1-firstIndex+1, len(logs), len(rf.logs))
 	// todo: 确定？
 	rf.commitIndex, rf.lastApplied = max(rf.commitIndex, index), max(rf.lastApplied, index)
@@ -188,7 +188,7 @@ func (rf *Raft) shinkLogs(index int) []LogEntry {
 }
 
 func (rf *Raft) genAppendEntriesParams(peer int) (*AppendEntriesArgs, *AppendEntriesReply) {
-	DPrintf("genAppendEntriesParams me:%d peer:%d, nextIndex:%d", rf.me, peer, rf.nextIndex[peer])
+	dPrintf("genAppendEntriesParams me:%d peer:%d, nextIndex:%d", rf.me, peer, rf.nextIndex[peer])
 	args := AppendEntriesArgs{
 		Term:         rf.currentTerm,
 		LeaderId:     rf.me,
@@ -207,7 +207,7 @@ func (rf *Raft) handleAppendEntries(peer int, args *AppendEntriesArgs, reply *Ap
 	defer rf.persist(nil)
 	// todo：了解：因为在send期间心跳和start都会触发appendEntries，会导致内容重复
 	rf.nextIndex[peer] = getLastLogIndex(&rf.logs) + 1
-	DPrintf("replicateOneRound after sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d reply.term:%d currTerm: %d reply.success:%t rf.nextIndex[peer]:%d lastLogIndex:%d reply.ConflictIndex:%d",
+	dPrintf("replicateOneRound after sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d reply.term:%d currTerm: %d reply.success:%t rf.nextIndex[peer]:%d lastLogIndex:%d reply.ConflictIndex:%d",
 		rf.me, peer, len(args.Entries), len(rf.logs), args.Term, args.PrevLogIndex, args.PrevLogTerm, reply.Term, rf.currentTerm, reply.Success, rf.nextIndex[peer], getLastLogIndex(&rf.logs), reply.ConflictIndex)
 	// 需要是rf.logs的后一个日志，而不是当前的args.Entries的后一个（可能是空，3B最后一个案例；可能有报错too many RPC bytes）
 	if reply.Term > rf.currentTerm {
@@ -235,7 +235,7 @@ func (rf *Raft) genInstallSnapshotParams() (*InstallSnapshotArgs, *InstallSnapsh
 		LastIncludedTerm:  rf.lastIncludedTerm,
 		Data:              rf.persister.ReadSnapshot(),
 	}
-	DPrintf("genInstallSnapshotParams me:%d len(snapshot):%d len(args.Data):%d",
+	dPrintf("genInstallSnapshotParams me:%d len(snapshot):%d len(args.Data):%d",
 		rf.me, len(rf.persister.ReadSnapshot()), len(args.Data))
 	reply := InstallSnapshotReply{}
 	return &args, &reply
@@ -244,7 +244,7 @@ func (rf *Raft) genInstallSnapshotParams() (*InstallSnapshotArgs, *InstallSnapsh
 func (rf *Raft) handleInstallSnapshot(peer int, args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	DPrintf("replicateOneRound after sendInstallSnapshot me:%d, peer:%d args.Term:%d reply.term:%d currTerm: %d",
+	dPrintf("replicateOneRound after sendInstallSnapshot me:%d, peer:%d args.Term:%d reply.term:%d currTerm: %d",
 		rf.me, peer, args.Term, reply.Term, rf.currentTerm)
 
 	if reply.Term > rf.currentTerm {
@@ -258,6 +258,6 @@ func (rf *Raft) handleInstallSnapshot(peer int, args *InstallSnapshotArgs, reply
 		rf.nextIndex[peer] = args.LastIncludedIndex + 1
 		rf.matchIndex[peer] = args.LastIncludedIndex
 	}
-	DPrintf("replicateOneRound end sendInstallSnapshot me:%d, peer:%d isLeader:%v nextIndex:%d, matchIndex:%d",
+	dPrintf("replicateOneRound end sendInstallSnapshot me:%d, peer:%d isLeader:%v nextIndex:%d, matchIndex:%d",
 		rf.me, peer, rf.state == Leader, rf.nextIndex[peer], rf.matchIndex[peer])
 }
