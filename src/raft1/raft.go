@@ -392,8 +392,8 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 	firstIndex, _ := rf.getFirstLogInfo() // getFirstIndex
 	// todo: snapShot待适配
 	if lastIndex < args.PrevLogIndex {
-		reply.ConflictIndex = lastIndex
-		reply.ConflictTerm = 0
+		reply.ConflictIndex = lastIndex + 1
+		reply.ConflictTerm = -1
 		reply.Success = false
 		return
 	} else if !rf.enableAppend(args.PrevLogIndex, args.PrevLogTerm, lastIndex, lastTerm, firstIndex) {
@@ -402,7 +402,7 @@ func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply
 		// 注意第0个元素的处理（否则如果冲突第一个index是1会跳过return）！！！会导致rejoin of partitioned leader异常
 		for ; i > 0 && rf.logs[i].Term == reply.ConflictTerm; i-- {
 		}
-		reply.ConflictIndex = i // todo：使leader跳过该冲突term的所有entry
+		reply.ConflictIndex = i + 1 // todo：使leader跳过该冲突term的所有entry，应该是
 		dPrintf("AppendEntries reject me:%d first:%d CTerm:%d, CIdx:%d", rf.me, firstIndex, reply.ConflictTerm, reply.ConflictIndex)
 		reply.Success = false
 		return

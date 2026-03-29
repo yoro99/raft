@@ -206,7 +206,7 @@ func (rf *Raft) handleAppendEntries(peer int, args *AppendEntriesArgs, reply *Ap
 	defer rf.mu.Unlock()
 	defer rf.persist(nil)
 	// todo：了解：因为在send期间心跳和start都会触发appendEntries，会导致内容重复
-	rf.nextIndex[peer] = getLastLogIndex(&rf.logs) + 1
+	rf.nextIndex[peer] = getLastLogIndex(&rf.logs) + 1 // todo：？？？位置是不是有问题？
 	dPrintf("replicateOneRound after sendAppendEntries me:%d, peer:%d len(log): %d len(all log):%d args.Term:%d args.preIndex:%d args.preTerm:%d reply.term:%d currTerm: %d reply.success:%t rf.nextIndex[peer]:%d lastLogIndex:%d reply.ConflictIndex:%d",
 		rf.me, peer, len(args.Entries), len(rf.logs), args.Term, args.PrevLogIndex, args.PrevLogTerm, reply.Term, rf.currentTerm, reply.Success, rf.nextIndex[peer], getLastLogIndex(&rf.logs), reply.ConflictIndex)
 	// 需要是rf.logs的后一个日志，而不是当前的args.Entries的后一个（可能是空，3B最后一个案例；可能有报错too many RPC bytes）
@@ -220,9 +220,25 @@ func (rf *Raft) handleAppendEntries(peer int, args *AppendEntriesArgs, reply *Ap
 			rf.matchIndex[peer] = getLastLogIndex(&args.Entries)
 			rf.checkCommit(getLastLogIndex(&args.Entries))
 		} else {
-			// todo 处理log 不重试，等待下一次heartbeat
-			// todo: 处理ConflictTerm
-			rf.nextIndex[peer] = reply.ConflictIndex + 1 // todo：conflictIndex充分检查，不+1会导致no agreement if too many followers disconnect 报错[-1]
+			// todo 处理log不重试，等待下一次heartbeat
+			// todo: 处理ConflictTerm, ConflictIndex是下一个需要传的log
+			// 前置条件1：共识算法，所有server前置任期肯定匹配，否则违背一致性（过不了一致性检查）
+			// 前置条件2: 如果有冲突index，只要leader中存在term，肯定是follower的index太多了！！！，取道leader的conflictTerm最后一个index即可
+			//		如果leader中没有term，则follower的整个conflictTerm无效，全部覆盖
+			rf.nextIndex[peer] = reply.ConflictIndex // todo：conflictIndex充分检查，不+1会导致no agreement if too many followers disconnect 报错[-1]
+			if reply.ConflictTerm != -1 {
+				index := 0
+				firstIndex, _ := rf.getFirstLogInfo()
+				for i, _ := rf.getLastLogInfo(); i >= firstIndex; i-- {
+					if rf.logs[i-firstIndex+1].Term == reply.ConflictTerm {
+						index = i
+						break
+					}
+				}
+				if index > 0 {
+					rf.nextIndex[peer] = index
+				}
+			}
 		}
 	}
 }
